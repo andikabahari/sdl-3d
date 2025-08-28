@@ -1,13 +1,49 @@
 #include "app.h"
 
+static void upload_buffer_ex(SDL_GPUDevice *device, u32 src_offset, SDL_GPUTransferBuffer *src_buffer, u32 size, u32 dst_offset, SDL_GPUBuffer *dst_buffer, bool cyclic) {
+    auto command_buffer = SDL_AcquireGPUCommandBuffer(device);
+    auto copy_pass = SDL_BeginGPUCopyPass(command_buffer);
+
+    SDL_GPUTransferBufferLocation copy_src{};
+    copy_src.transfer_buffer = src_buffer;
+    copy_src.offset = src_offset;
+
+    SDL_GPUBufferRegion copy_dst{};
+    copy_dst.buffer = dst_buffer;
+    copy_dst.offset = dst_offset;
+    copy_dst.size = size;
+    
+    SDL_UploadToGPUBuffer(copy_pass, &copy_src, &copy_dst, cyclic);
+
+    SDL_EndGPUCopyPass(copy_pass);
+    ASSERT(SDL_SubmitGPUCommandBuffer(command_buffer));
+}
+
+static void upload_buffer(SDL_GPUDevice *device, SDL_GPUTransferBuffer *src_buffer, u32 size, SDL_GPUBuffer *dst_buffer) {
+    upload_buffer_ex(device, 0, src_buffer, size, 0, dst_buffer, false);
+}
+
 struct Uniform_Block {
     glm::mat4 mvp;
+};
+
+struct Vertex_Data {
+    glm::vec3 position;
+    glm::vec4 color;
+};
+
+static Vertex_Data vertices[] = {
+    {glm::vec3(-0.5f, -0.5f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)},
+    {glm::vec3( 0.5f, -0.5f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)},
+    {glm::vec3( 0.0f,  0.5f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)},
 };
 
 struct App_State {
     SDL_Window *window        = NULL;
     SDL_GPUDevice *gpu_device = NULL;
+
     SDL_GPUGraphicsPipeline *graphics_pipeline = NULL;
+    SDL_GPUBuffer *vertex_buffer = NULL;
 
     // Time in milliseconds.
     u64 last_time    = 0;
@@ -21,6 +57,10 @@ struct App_State {
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     static App_State state{};
 
+    // 
+    // Subsystems
+    //
+
     SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
 
     ASSERT(SDL_Init(SDL_INIT_VIDEO));
@@ -33,6 +73,10 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     ASSERT(SDL_ClaimWindowForGPUDevice(state.gpu_device, state.window));
 
+    // 
+    // V-Sync option
+    //
+
 #if 0
     SDL_GPUPresentMode present_mode = SDL_GPU_PRESENTMODE_VSYNC;
     if (SDL_WindowSupportsGPUPresentMode(state.gpu_device, state.window, SDL_GPU_PRESENTMODE_IMMEDIATE)) {
@@ -43,7 +87,15 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     SDL_SetGPUSwapchainParameters(state.gpu_device, state.window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, present_mode);
 #endif
 
-    { // Init graphics pipeline
+    // 
+    // Graphics pipeline
+    //
+    
+    {
+        //
+        // Shaders
+        //
+        
         u64 vertex_code_size;
         auto vertex_code = SDL_LoadFile("res/shaders/basic.vert.spv", &vertex_code_size);
         SDL_GPUShaderCreateInfo vertex_info{};
@@ -74,6 +126,47 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         auto fragment_shader = SDL_CreateGPUShader(state.gpu_device, &fragment_info);
         SDL_free(fragment_code);
 
+        // 
+        // Vertex input state
+        //
+
+        SDL_GPUVertexBufferDescription description0{};
+        description0.slot               = 0;
+        description0.pitch              = sizeof(Vertex_Data);
+        description0.input_rate         = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        description0.instance_step_rate = 0;
+
+        SDL_GPUVertexBufferDescription vertex_buffer_descriptions[] = {
+            description0,
+        };
+
+        SDL_GPUVertexAttribute attribute0{};
+        attribute0.location    = 0;
+        attribute0.buffer_slot = 0;
+        attribute0.format      = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        attribute0.offset      = offsetof(Vertex_Data, position);
+
+        SDL_GPUVertexAttribute attribute1{};
+        attribute1.location    = 1;
+        attribute1.buffer_slot = 0;
+        attribute1.format      = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        attribute1.offset      = offsetof(Vertex_Data, color);
+
+        SDL_GPUVertexAttribute vertex_attributes[] = {
+            attribute0,
+            attribute1,
+        };
+
+        SDL_GPUVertexInputState vertex_input_state{};
+        vertex_input_state.vertex_buffer_descriptions = vertex_buffer_descriptions;
+        vertex_input_state.num_vertex_buffers         = ARRAY_COUNT(vertex_buffer_descriptions);
+        vertex_input_state.vertex_attributes          = vertex_attributes;
+        vertex_input_state.num_vertex_attributes      = ARRAY_COUNT(vertex_attributes);
+
+        // 
+        // Graphics pipeline
+        //
+
         SDL_GPUColorTargetDescription color_target_description{};
         color_target_description.format = SDL_GetGPUSwapchainTextureFormat(state.gpu_device, state.window);
         
@@ -82,10 +175,11 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         target_info.num_color_targets         = 1;
         
         SDL_GPUGraphicsPipelineCreateInfo pipeline_info{};
-        pipeline_info.vertex_shader   = vertex_shader;
-        pipeline_info.fragment_shader = fragment_shader;
-        pipeline_info.primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        pipeline_info.target_info     = target_info;
+        pipeline_info.vertex_shader      = vertex_shader;
+        pipeline_info.fragment_shader    = fragment_shader;
+        pipeline_info.primitive_type     = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        pipeline_info.target_info        = target_info;
+        pipeline_info.vertex_input_state = vertex_input_state;
 
         state.graphics_pipeline = SDL_CreateGPUGraphicsPipeline(state.gpu_device, &pipeline_info);
 
@@ -93,13 +187,47 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         SDL_ReleaseGPUShader(state.gpu_device, vertex_shader);
     }
 
-    s32 _w, _h;
-    ASSERT(SDL_GetWindowSizeInPixels(state.window, &_w, &_h));
-    f32 window_width  = static_cast<f32>(_w);
-    f32 window_height = static_cast<f32>(_h);
+    // 
+    // Vertex buffer
+    //
+    
+    {
+        SDL_GPUBufferCreateInfo vertex_info{};
+        vertex_info.size  = sizeof(vertices);
+        vertex_info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        state.vertex_buffer = SDL_CreateGPUBuffer(state.gpu_device, &vertex_info);
 
-    f32 aspect = window_width / window_height;
-    state.proj = glm::perspective(glm::radians(70.0f), aspect, 0.0001f, 1000.0f);
+        SDL_GPUTransferBufferCreateInfo transfer_info{};
+        transfer_info.size  = sizeof(vertices);
+        transfer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        auto transfer_buffer = SDL_CreateGPUTransferBuffer(state.gpu_device, &transfer_info);
+
+        auto data = SDL_MapGPUTransferBuffer(state.gpu_device, transfer_buffer, false);
+        SDL_memcpy(data, vertices, sizeof(vertices));
+        SDL_UnmapGPUTransferBuffer(state.gpu_device, transfer_buffer);
+
+        upload_buffer(state.gpu_device, transfer_buffer, sizeof(vertices), state.vertex_buffer);
+
+        SDL_ReleaseGPUTransferBuffer(state.gpu_device, transfer_buffer);
+    }
+
+    // 
+    // Projection matrix
+    //
+    
+    {
+        s32 _w, _h;
+        ASSERT(SDL_GetWindowSizeInPixels(state.window, &_w, &_h));
+        f32 width  = static_cast<f32>(_w);
+        f32 height = static_cast<f32>(_h);
+
+        f32 aspect = width / height;
+        state.proj = glm::perspective(glm::radians(70.0f), aspect, 0.0001f, 1000.0f);
+    }
+
+    // 
+    // Frame time
+    //
 
     state.last_time = SDL_GetTicks();
 
@@ -150,9 +278,18 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         color_target.store_op    = SDL_GPU_STOREOP_STORE;
         color_target.texture     = swapchain_texture;
 
+        SDL_GPUBufferBinding binding0{};
+        binding0.buffer = state->vertex_buffer;
+        binding0.offset = 0;
+
+        SDL_GPUBufferBinding buffer_bindings[] = {
+            binding0,
+        };
+
         auto render_pass = SDL_BeginGPURenderPass(command_buffer, &color_target, 1, NULL);
 
         SDL_BindGPUGraphicsPipeline(render_pass, state->graphics_pipeline);
+        SDL_BindGPUVertexBuffers(render_pass, 0, buffer_bindings, ARRAY_COUNT(buffer_bindings));
         SDL_PushGPUVertexUniformData(command_buffer, 0, &uniform_block, sizeof(Uniform_Block));
         SDL_DrawGPUPrimitives(render_pass, 3, 1, 0, 0);
 
