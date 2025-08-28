@@ -33,9 +33,15 @@ struct Vertex_Data {
 };
 
 static Vertex_Data vertices[] = {
-    {glm::vec3(-0.5f, -0.5f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)},
-    {glm::vec3( 0.5f, -0.5f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)},
-    {glm::vec3( 0.0f,  0.5f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)},
+    {glm::vec3(-0.5f, -0.5f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)}, // Bottom-left
+    {glm::vec3( 0.5f, -0.5f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)}, // Bottom-right
+    {glm::vec3( 0.5f,  0.5f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)}, // Top-right
+    {glm::vec3(-0.5f,  0.5f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)}, // Top-left
+};
+
+static u16 vertex_indices[] = {
+    0, 1, 2,
+    2, 3, 0,
 };
 
 struct App_State {
@@ -44,6 +50,7 @@ struct App_State {
 
     SDL_GPUGraphicsPipeline *graphics_pipeline = NULL;
     SDL_GPUBuffer *vertex_buffer = NULL;
+    SDL_GPUBuffer *index_buffer  = NULL;
 
     // Time in milliseconds.
     u64 last_time    = 0;
@@ -197,16 +204,29 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         vertex_info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
         state.vertex_buffer = SDL_CreateGPUBuffer(state.gpu_device, &vertex_info);
 
+        SDL_GPUBufferCreateInfo index_info{};
+        index_info.size  = sizeof(vertex_indices);
+        index_info.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+        state.index_buffer = SDL_CreateGPUBuffer(state.gpu_device, &index_info);
+
         SDL_GPUTransferBufferCreateInfo transfer_info{};
-        transfer_info.size  = sizeof(vertices);
+        transfer_info.size  = vertex_info.size + index_info.size;
         transfer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
         auto transfer_buffer = SDL_CreateGPUTransferBuffer(state.gpu_device, &transfer_info);
 
-        auto data = SDL_MapGPUTransferBuffer(state.gpu_device, transfer_buffer, false);
-        SDL_memcpy(data, vertices, sizeof(vertices));
+        auto data = static_cast<u8 *>(SDL_MapGPUTransferBuffer(state.gpu_device, transfer_buffer, false));
+        u32 mem_offset = 0;
+        SDL_memcpy(data + mem_offset, vertices, vertex_info.size);
+        mem_offset += vertex_info.size;
+        SDL_memcpy(data + mem_offset, vertex_indices, index_info.size);
+        mem_offset += index_info.size;
         SDL_UnmapGPUTransferBuffer(state.gpu_device, transfer_buffer);
 
-        upload_buffer(state.gpu_device, transfer_buffer, sizeof(vertices), state.vertex_buffer);
+        u32 transfer_offset = 0;
+        upload_buffer_ex(state.gpu_device, transfer_offset, transfer_buffer, vertex_info.size, 0, state.vertex_buffer, false);
+        transfer_offset += vertex_info.size;
+        upload_buffer_ex(state.gpu_device, transfer_offset, transfer_buffer, index_info.size, 0, state.index_buffer, false);
+        transfer_offset += index_info.size;
 
         SDL_ReleaseGPUTransferBuffer(state.gpu_device, transfer_buffer);
     }
@@ -278,20 +298,21 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         color_target.store_op    = SDL_GPU_STOREOP_STORE;
         color_target.texture     = swapchain_texture;
 
-        SDL_GPUBufferBinding binding0{};
-        binding0.buffer = state->vertex_buffer;
-        binding0.offset = 0;
+        SDL_GPUBufferBinding vertex_binding{};
+        vertex_binding.buffer = state->vertex_buffer;
+        vertex_binding.offset = 0;
 
-        SDL_GPUBufferBinding buffer_bindings[] = {
-            binding0,
-        };
+        SDL_GPUBufferBinding index_binding{};
+        index_binding.buffer = state->index_buffer;
+        index_binding.offset = 0;
 
         auto render_pass = SDL_BeginGPURenderPass(command_buffer, &color_target, 1, NULL);
 
         SDL_BindGPUGraphicsPipeline(render_pass, state->graphics_pipeline);
-        SDL_BindGPUVertexBuffers(render_pass, 0, buffer_bindings, ARRAY_COUNT(buffer_bindings));
+        SDL_BindGPUVertexBuffers(render_pass, 0, &vertex_binding, 1);
+        SDL_BindGPUIndexBuffer(render_pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
         SDL_PushGPUVertexUniformData(command_buffer, 0, &uniform_block, sizeof(Uniform_Block));
-        SDL_DrawGPUPrimitives(render_pass, 3, 1, 0, 0);
+        SDL_DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0);
 
         SDL_EndGPURenderPass(render_pass);
     }
