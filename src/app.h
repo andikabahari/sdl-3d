@@ -1,36 +1,21 @@
 #pragma once
 
+#include "defines.h"
+
 #include <SDL3/SDL.h>
-
-#define SDL_MAIN_USE_CALLBACKS 1
-#include <SDL3/SDL_main.h>
-
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include "gfx.h"
 
-#include <stddef.h>
+struct App_State {
+    SDL_Window *window;
+    Gfx_Context gfx;
 
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+    // Time in milliseconds.
+    u64 last_time = 0;
+    u64 current_time = 0;
 
-typedef int8_t   s8;
-typedef int16_t  s16;
-typedef int32_t  s32;
-typedef int64_t  s64;
-
-typedef s8       b8;
-typedef s16      b16;
-typedef s32      b32;
-typedef s64      b64;
-
-typedef float    f32;
-typedef double   f64;
-
-#define ARRAY_COUNT(a) (sizeof((a)) / sizeof((a)[0]))
-
-#define ASSERT(expr) SDL_assert((expr))
+    f32 rotate = 0.0f;
+    glm::mat4 proj  = glm::mat4(1.0f);
+    glm::mat4 model = glm::mat4(1.0f);
+};

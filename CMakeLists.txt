@@ -19,7 +19,7 @@ add_subdirectory(thirdparty/SDL EXCLUDE_FROM_ALL)
 set(GLM_BUILD_TESTS OFF)
 add_subdirectory(thirdparty/glm EXCLUDE_FROM_ALL)
 
-add_executable(app WIN32 src/app.cpp)
+add_executable(app WIN32 src/app_main.cpp src/gfx.cpp)
 
 target_include_directories(app PRIVATE thirdparty/stb)
 target_link_libraries(app PRIVATE SDL3::SDL3)
