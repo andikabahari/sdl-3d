@@ -27,6 +27,8 @@ typedef double f64;
 typedef ptrdiff_t ssize;
 typedef size_t    usize;
 
+#define cast(T) (T)
+
 
 // Defer cheat.
 // Source: https://gist.github.com/andrewrk/ffb272748448174e6cdb4958dae9f3d8

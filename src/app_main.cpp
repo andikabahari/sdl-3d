@@ -28,6 +28,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     ASSERT(state.window != NULL);
 
     gfx_init(&state.gfx, state.window);
+    gfx_model_load(&state.sample_model, "res/models/sample/scene.gltf");
 
     *appstate = &state;
     return SDL_APP_CONTINUE;
@@ -35,6 +36,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result) {
     auto state = static_cast<App_State *>(appstate);
+
+    gfx_model_cleanup(&state->sample_model);
 
     gfx_cleanup(&state->gfx);
 

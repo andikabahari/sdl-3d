@@ -18,4 +18,6 @@ struct App_State {
     f32 rotate = 0.0f;
     glm::mat4 proj  = glm::mat4(1.0f);
     glm::mat4 model = glm::mat4(1.0f);
+
+    Gfx_Model sample_model;
 };

@@ -36,6 +36,39 @@ void gfx_immediate_upload_buffer_ex(Gfx_Context *context, u32 src_offset, SDL_GP
                                     u32 dst_offset, SDL_GPUBuffer *dst_buffer, bool cyclic);
 void gfx_immediate_upload_buffer(Gfx_Context *context, SDL_GPUTransferBuffer *src_buffer, u32 size, SDL_GPUBuffer *dst_buffer);
 
+// To upload using an existing copy_pass, provide it through the parameter.
+// Otherwise, a new copy_pass will be created automatically.
+//
+// Note: If gfx_upload_buffer_begin() is called, it must be paired with
+// gfx_upload_buffer_end() before starting a new upload session.
 void gfx_upload_buffer_begin(Gfx_Context *context, SDL_GPUCopyPass *copy_pass, SDL_GPUTransferBuffer *transfer_buffer, bool cyclic);
 void gfx_upload_buffer_end(Gfx_Context *context);
+
 void gfx_upload_buffer_push(Gfx_Context *context, u32 size, u32 offset, SDL_GPUBuffer *buffer);
+
+struct Gfx_Mesh {
+    int vertex_count   = 0;
+    int triangle_count = 0;
+
+    f32 *vertices   = NULL;
+    f32 *texcoords  = NULL;
+    f32 *texcoords2 = NULL;
+    f32 *normals    = NULL;
+    f32 *tangents   = NULL;
+    u8  *colors     = NULL;
+    u16 *indices    = NULL;
+
+    // TODO: animation.
+};
+
+struct Gfx_Model {
+    glm::mat4 transform = glm::mat4(1.0f);
+
+    int mesh_count = 0;
+    Gfx_Mesh *meshes = NULL;
+
+    // TODO:materials, animation.
+};
+
+void gfx_model_load(Gfx_Model *model, const char *file);
+void gfx_model_cleanup(Gfx_Model *model);

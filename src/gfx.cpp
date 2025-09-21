@@ -3,6 +3,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>
+
 struct Uniform_Block {
     glm::mat4 mvp;
 };
@@ -261,78 +264,6 @@ static void init_texture(Gfx_Context *context, SDL_GPUCopyPass *copy_pass) {
 
 }
 
-
-void gfx_immediate_upload_buffer_ex(Gfx_Context *context, u32 src_offset, SDL_GPUTransferBuffer *src_buffer, u32 size,
-                                    u32 dst_offset, SDL_GPUBuffer *dst_buffer, bool cyclic) {
-    auto command_buffer = SDL_AcquireGPUCommandBuffer(context->device);
-    auto copy_pass = SDL_BeginGPUCopyPass(command_buffer);
-
-    SDL_GPUTransferBufferLocation copy_src{};
-    copy_src.transfer_buffer = src_buffer;
-    copy_src.offset = src_offset;
-
-    SDL_GPUBufferRegion copy_dst{};
-    copy_dst.buffer = dst_buffer;
-    copy_dst.offset = dst_offset;
-    copy_dst.size = size;
-    
-    SDL_UploadToGPUBuffer(copy_pass, &copy_src, &copy_dst, cyclic);
-
-    SDL_EndGPUCopyPass(copy_pass);
-    ASSERT(SDL_SubmitGPUCommandBuffer(command_buffer));
-}
-
-void gfx_immediate_upload_buffer(Gfx_Context *context, SDL_GPUTransferBuffer *src_buffer, u32 size, SDL_GPUBuffer *dst_buffer) {
-    gfx_immediate_upload_buffer_ex(context, 0, src_buffer, size, 0, dst_buffer, false);
-}
-
-// To upload using an existing copy_pass, provide it through the parameter.
-// Otherwise, a new copy_pass will be created automatically.
-//
-// Note: If gfx_upload_buffer_begin() is called, it must be paired with
-// gfx_upload_buffer_end() before starting a new upload session.
-void gfx_upload_buffer_begin(Gfx_Context *context, SDL_GPUCopyPass *copy_pass, SDL_GPUTransferBuffer *transfer_buffer, bool cyclic) {
-    Gfx_Upload_Buffer *upload = &context->upload;
-
-    if (copy_pass != NULL) {
-        upload->copy_pass = copy_pass;
-        upload->using_new_copy_pass = false;
-    } else {
-        upload->command_buffer = SDL_AcquireGPUCommandBuffer(context->device);
-        upload->copy_pass = SDL_BeginGPUCopyPass(upload ->command_buffer);
-        upload->using_new_copy_pass = true;
-    }
-    upload->transfer_buffer = transfer_buffer;
-    upload->cyclic = cyclic;
-}
-
-void gfx_upload_buffer_end(Gfx_Context *context) {
-    Gfx_Upload_Buffer *upload = &context->upload;
-
-    if (upload->using_new_copy_pass) {
-        SDL_EndGPUCopyPass(upload->copy_pass);
-        ASSERT(SDL_SubmitGPUCommandBuffer(upload->command_buffer));
-    }
-}
-
-void gfx_upload_buffer_push(Gfx_Context *context, u32 size, u32 offset, SDL_GPUBuffer *buffer) {
-    Gfx_Upload_Buffer *upload = &context->upload;
-
-    SDL_GPUTransferBufferLocation copy_src{};
-    copy_src.transfer_buffer = upload->transfer_buffer;
-    copy_src.offset = upload->offset;
-
-    SDL_GPUBufferRegion copy_dst{};
-    copy_dst.buffer = buffer;
-    copy_dst.offset = offset;
-    copy_dst.size = size;
-
-    SDL_UploadToGPUBuffer(upload->copy_pass, &copy_src, &copy_dst, upload->cyclic);
-
-    upload->offset += size;
-}
-
-
 void gfx_draw(Gfx_Context *context, f32 rotate, SDL_FColor clear_color) {
     auto command_buffer = SDL_AcquireGPUCommandBuffer(context->device);
     defer { ASSERT(SDL_SubmitGPUCommandBuffer(command_buffer)); };
@@ -383,4 +314,196 @@ void gfx_draw(Gfx_Context *context, f32 rotate, SDL_FColor clear_color) {
 
         SDL_DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0);
     }
+}
+
+
+void gfx_immediate_upload_buffer_ex(Gfx_Context *context, u32 src_offset, SDL_GPUTransferBuffer *src_buffer, u32 size,
+                                    u32 dst_offset, SDL_GPUBuffer *dst_buffer, bool cyclic) {
+    auto command_buffer = SDL_AcquireGPUCommandBuffer(context->device);
+    auto copy_pass = SDL_BeginGPUCopyPass(command_buffer);
+
+    SDL_GPUTransferBufferLocation copy_src{};
+    copy_src.transfer_buffer = src_buffer;
+    copy_src.offset = src_offset;
+
+    SDL_GPUBufferRegion copy_dst{};
+    copy_dst.buffer = dst_buffer;
+    copy_dst.offset = dst_offset;
+    copy_dst.size = size;
+    
+    SDL_UploadToGPUBuffer(copy_pass, &copy_src, &copy_dst, cyclic);
+
+    SDL_EndGPUCopyPass(copy_pass);
+    ASSERT(SDL_SubmitGPUCommandBuffer(command_buffer));
+}
+
+void gfx_immediate_upload_buffer(Gfx_Context *context, SDL_GPUTransferBuffer *src_buffer, u32 size, SDL_GPUBuffer *dst_buffer) {
+    gfx_immediate_upload_buffer_ex(context, 0, src_buffer, size, 0, dst_buffer, false);
+}
+
+void gfx_upload_buffer_begin(Gfx_Context *context, SDL_GPUCopyPass *copy_pass, SDL_GPUTransferBuffer *transfer_buffer, bool cyclic) {
+    Gfx_Upload_Buffer *upload = &context->upload;
+
+    if (copy_pass != NULL) {
+        upload->copy_pass = copy_pass;
+        upload->using_new_copy_pass = false;
+    } else {
+        upload->command_buffer = SDL_AcquireGPUCommandBuffer(context->device);
+        upload->copy_pass = SDL_BeginGPUCopyPass(upload ->command_buffer);
+        upload->using_new_copy_pass = true;
+    }
+    upload->transfer_buffer = transfer_buffer;
+    upload->cyclic = cyclic;
+}
+
+void gfx_upload_buffer_end(Gfx_Context *context) {
+    Gfx_Upload_Buffer *upload = &context->upload;
+
+    if (upload->using_new_copy_pass) {
+        SDL_EndGPUCopyPass(upload->copy_pass);
+        ASSERT(SDL_SubmitGPUCommandBuffer(upload->command_buffer));
+    }
+}
+
+void gfx_upload_buffer_push(Gfx_Context *context, u32 size, u32 offset, SDL_GPUBuffer *buffer) {
+    Gfx_Upload_Buffer *upload = &context->upload;
+
+    SDL_GPUTransferBufferLocation copy_src{};
+    copy_src.transfer_buffer = upload->transfer_buffer;
+    copy_src.offset = upload->offset;
+
+    SDL_GPUBufferRegion copy_dst{};
+    copy_dst.buffer = buffer;
+    copy_dst.offset = offset;
+    copy_dst.size = size;
+
+    SDL_UploadToGPUBuffer(upload->copy_pass, &copy_src, &copy_dst, upload->cyclic);
+
+    upload->offset += size;
+}
+
+void gfx_model_load(Gfx_Model *model, const char *file) {
+    *model = {};
+
+    cgltf_options options{};
+    cgltf_data *data = NULL;
+
+    cgltf_result result = cgltf_parse_file(&options, file, &data);
+    if (result != cgltf_result_success) return;
+    defer { cgltf_free(data); };
+
+    result = cgltf_load_buffers(&options, data, file);
+    if (result != cgltf_result_success) {
+        cgltf_free(data);
+        return;
+    }
+
+    int prim_count = 0;
+    for (cgltf_size ni = 0; ni < data->nodes_count; ni++) {
+        cgltf_node *node = &(data->nodes[ni]);
+        cgltf_mesh *mesh = node->mesh;
+        if (!mesh) continue;
+
+        for (cgltf_size pi = 0; pi < mesh->primitives_count; pi++) {
+            // Only support primitive triangles.
+            if (mesh->primitives[pi].type == cgltf_primitive_type_triangles) prim_count++;
+        }
+    }
+
+    // Get mesh count.
+    int mesh_count = prim_count;
+    auto meshes = cast(Gfx_Mesh *)SDL_calloc(cast(size_t)mesh_count, sizeof(Gfx_Mesh));
+    if (!meshes) {
+        cgltf_free(data);
+        return;
+    }
+
+    defer {
+        model->mesh_count = mesh_count;
+        model->meshes = meshes;
+    };
+
+    // Get mesh data.
+    ssize mesh_index = 0;
+    for (cgltf_size ni = 0; ni < data->nodes_count; ni++) {
+        cgltf_node *node = &(data->nodes[ni]);
+        cgltf_mesh *mesh = node->mesh;
+        if (!mesh) continue;
+
+        // TODO: get matrix transform.
+
+        for (cgltf_size pi = 0; pi < mesh->primitives_count; pi++) {
+            cgltf_primitive *prim = &(mesh->primitives[pi]);
+
+            // Only support primitive triangles.
+            if (prim->type != cgltf_primitive_type_triangles) continue;
+
+            defer { mesh_index++; };
+
+            //
+            // Load following attributes:
+            // - Vertices
+            // - Normals
+            // - Tangents
+            // - Texcoords
+            // - Texcoords2
+            // - Colors
+            //
+            for (cgltf_size ai = 0; ai < prim->attributes_count; ai++) {
+                cgltf_attribute *attribute = &(prim->attributes[ai]);
+                cgltf_accessor *accessor = attribute->data;
+
+                cgltf_size floats_needed = cgltf_accessor_unpack_floats(accessor, NULL, 0);
+                if (floats_needed == 0) continue;
+
+                if (attribute->type == cgltf_attribute_type_position) { // Vertices.
+                    meshes[mesh_index].vertex_count = cast(int)accessor->count;
+                    meshes[mesh_index].vertices = cast(f32 *)SDL_malloc(floats_needed * sizeof(f32));
+                    cgltf_accessor_unpack_floats(accessor, meshes[mesh_index].vertices, floats_needed);
+                } else if (attribute->type == cgltf_attribute_type_normal) {
+                    meshes[mesh_index].normals = cast(f32 *)SDL_malloc(floats_needed * sizeof(f32));
+                    cgltf_accessor_unpack_floats(accessor, meshes[mesh_index].normals, floats_needed);
+                } else if (attribute->type == cgltf_attribute_type_tangent) {
+                    // TODO: normal attribute.
+                } else if (attribute->type == cgltf_attribute_type_texcoord) {
+                    if (attribute->index == 0) {
+                        meshes[mesh_index].texcoords = cast(f32 *)SDL_malloc(floats_needed * sizeof(f32));
+                        cgltf_accessor_unpack_floats(accessor, meshes[mesh_index].texcoords, floats_needed);
+                    } else if (attribute->index == 1) {
+                        meshes[mesh_index].texcoords2 = cast(f32 *)SDL_malloc(floats_needed * sizeof(f32));
+                        cgltf_accessor_unpack_floats(accessor, meshes[mesh_index].texcoords2, floats_needed);
+                    }
+                } else if (attribute->type == cgltf_attribute_type_color) {
+                    // TODO: color attribute.
+                }
+            }
+
+            //
+            // Load primitive indices data.
+            //
+            {
+                cgltf_accessor *accessor = prim->indices;
+
+                cgltf_size triangle_count = accessor->count / 3;
+                meshes[mesh_index].triangle_count = triangle_count;
+
+                cgltf_size alloc_size = accessor->count * sizeof(u16);
+                meshes[mesh_index].indices = cast(u16 *)SDL_malloc(alloc_size);
+                cgltf_accessor_unpack_indices(accessor, meshes[mesh_index].indices, alloc_size, triangle_count);
+            }
+        }
+    }
+}
+
+void gfx_model_cleanup(Gfx_Model *model) {
+    for (int i = 0; i < model->mesh_count; i++) {
+        Gfx_Mesh mesh = model->meshes[i];
+        if (mesh.vertices != NULL)   SDL_free(mesh.vertices);
+        if (mesh.texcoords != NULL)  SDL_free(mesh.texcoords);
+        if (mesh.texcoords2 != NULL) SDL_free(mesh.texcoords2);
+        if (mesh.normals != NULL)    SDL_free(mesh.normals);
+        if (mesh.indices != NULL)    SDL_free(mesh.indices);
+    }
+    SDL_free(model->meshes);
+    *model = {};
 }
